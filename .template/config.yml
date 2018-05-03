@@ -1,0 +1,12 @@
+# Path to the configuration script from the project root directory
+configuration_script: "./.template/configure-module-template.sh"
+
+# MCS Provided Variables
+# MCS_MODULE_NAME: The name of the module
+# MCS_MODULE_JVM_NAME: The JVM package name of the module
+# MCS_MODULE_NAMESPACE: The namespace the module lives under
+# MCS_ROOT_PROJECT_DIR: The absolute path of the root project directory
+
+# Uncomment and add any user required variables here. These will be validated against the MCS api call. 
+# variables:
+#  - ENVIRONMENT_VAR

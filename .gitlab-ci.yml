@@ -1,0 +1,73 @@
+# This file is a template, and might need editing before it works on your project.
+#
+# This is the Gradle build system for JVM applications
+# https://gradle.org/
+# https://github.com/gradle/gradle
+
+stages:
+  - test
+  - release
+
+variables:
+  GIT_STRATEGY: "clone"
+  GRADLE_OPTS: "-Dorg.gradle.logging.level=info -Dorg.gradle.daemon=false"
+
+# Common config
+.linux: &linux
+  image: openjdk:8
+  tags:
+    - nerv-aws-docker-linux
+
+.macos: &macos
+  tags:
+    - nerv-tuk-bash-macos
+
+.windows: &windows
+  tags:
+    - nerv-aws-powershell-windows
+
+.test: &test
+  stage: test
+  artifacts:
+    paths:
+      - .gradle/
+      - build/
+    expire_in: 3 days
+    when: always
+  script:
+    - ./gradlew build
+
+# Build and test on Linux/MacOS/Windows
+linux-test:
+  <<: *linux
+  <<: *test
+
+macos-test:
+  <<: *macos
+  <<: *test
+
+windows-test:
+  <<: *windows
+  <<: *test
+
+# Creates a release tag from each commit to master
+tag-for-release:
+  <<: *linux
+  stage: release
+  dependencies:
+    - linux-test
+  only:
+    - master
+  script:
+    - ./gradlew tagForRelease
+
+# Publishes release tags to artifactory
+publish:
+  <<: *linux
+  stage: release
+  dependencies:
+    - linux-test
+  only:
+    - tags
+  script:
+    - ./gradlew publish
