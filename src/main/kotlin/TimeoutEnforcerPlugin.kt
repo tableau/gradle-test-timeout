@@ -13,7 +13,7 @@ import java.io.File
 import java.net.URLClassLoader
 import java.util.concurrent.TimeUnit
 
-class TimeoutEnforcerPlugin : Plugin<Project> {
+public class TimeoutEnforcerPlugin : Plugin<Project> {
     companion object {
         val log: Logger = Logging.getLogger(TimeoutEnforcerPlugin::class.java)
     }
