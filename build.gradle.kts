@@ -5,6 +5,7 @@ plugins {
     id("java-gradle-plugin")
     id("com.tableau.nerv-java-lib-module-plugin") version("1.1.9")
     id("org.jmailen.kotlinter") version("1.11.3")
+    id("maven-publish")
     kotlin("jvm") version("1.2.41")
 }
 buildscript {
@@ -27,6 +28,7 @@ val samplesSourceSet:SourceSet = java.sourceSets.getByName("samples")
 val junitJupiterVersion = "5.1.0"
 val spekVersion = "1.1.5"
 val asmVersion = "6.1.1"
+val jmockitVersion = "1.24"
 
 dependencies {
     compile(kotlin("stdlib-jdk8"))
@@ -38,9 +40,11 @@ dependencies {
     compile("junit:junit:4.12")
 
     "samplesCompile"("junit:junit:4.12")
+    "samplesCompile"("org.jmockit:jmockit:$jmockitVersion")
 
     compile(gradleApi())
     compile("org.ow2.asm:asm:$asmVersion")
+    compile("org.ow2.asm:asm-tree:$asmVersion")
 
     testCompile(gradleTestKit())
     testCompile("org.ow2.asm:asm-util:$asmVersion")
@@ -50,6 +54,7 @@ dependencies {
 
     testRuntime("org.jetbrains.spek:spek-junit-platform-engine:$spekVersion")
     testRuntime("org.junit.jupiter:junit-jupiter-engine:$junitJupiterVersion")
+    testRuntime("org.jmockit:jmockit:$jmockitVersion")
 }
 
 gradlePlugin {
