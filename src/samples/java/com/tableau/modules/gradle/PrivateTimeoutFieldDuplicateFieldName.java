@@ -1,16 +1,14 @@
 package com.tableau.modules.gradle;
 
+import java.util.concurrent.TimeUnit;
+
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.Timeout;
 
-import java.lang.Thread;
-import java.lang.System;
-import java.util.concurrent.TimeUnit;
-
-public class StaticTimeoutField {
-    @Rule
-    public static Timeout timeout = new Timeout(5*1000L, TimeUnit.MILLISECONDS);
+public class PrivateTimeoutFieldDuplicateFieldName {
+    //No annotation because that wouldn't be a valid JUnit class
+    private Timeout globalTimeout = new Timeout(5*1000L, TimeUnit.MILLISECONDS);
 
     @Test
     public void noopTest() {

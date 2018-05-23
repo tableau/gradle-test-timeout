@@ -1,14 +1,19 @@
 package com.tableau.modules.gradle;
 
-import java.util.concurrent.TimeUnit;
-
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.Timeout;
 
-public class PrivateTimeoutField {
-    @Rule
-    private Timeout globalTimeout = new Timeout(5*1000L, TimeUnit.MILLISECONDS);
+public class JunitWithAnonymousInner {
+
+    @Test
+    public void usesAnonymousInner() {
+        Object anon = new Object() {
+            @Override
+            public String toString() {
+                return "usesAnonymousInner";
+            }
+        };
+        System.out.println(anon.toString());
+    }
 
     @Test
     public void noopTest() {

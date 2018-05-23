@@ -17,16 +17,28 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
-data class TestDef(val name: String, val expectedApplicability: Junit4TimeoutTransform.Applicability)
+data class TestDef(
+    val name: String,
+    val expectedApplicability: Junit4TimeoutTransform.Applicability,
+    val expectedFieldName: String = Junit4TimeoutTransform.defaultTimeoutFieldName
+)
+
 val tests = listOf(
         TestDef("BasicJunitTestWithTimeout", Junit4TimeoutTransform.Applicability.EXISTENT_TIMEOUT),
         TestDef("HelloWorld", Junit4TimeoutTransform.Applicability.NO_TESTS),
         TestDef("JunitTestSubclass", Junit4TimeoutTransform.Applicability.EXISTENT_TIMEOUT),
-        TestDef("ClassWithTimeoutButNoTests", Junit4TimeoutTransform.Applicability.EXISTENT_TIMEOUT), // NO_TESTS also acceptable
+        TestDef("ClassWithTimeoutButNoTests", Junit4TimeoutTransform.Applicability.EXISTENT_TIMEOUT), // NO_TESTS would also be acceptable
         TestDef("BasicJunitTest", Junit4TimeoutTransform.Applicability.APPLICABLE),
         TestDef("JunitTestWithTempFolderRule", Junit4TimeoutTransform.Applicability.APPLICABLE),
-        TestDef("StaticTimeoutField", Junit4TimeoutTransform.Applicability.APPLICABLE),
-        TestDef("PrivateTimeoutField", Junit4TimeoutTransform.Applicability.APPLICABLE))
+        TestDef("PrivateTimeoutFieldDuplicateFieldName", Junit4TimeoutTransform.Applicability.APPLICABLE, "globalTimeout1"),
+        TestDef("JunitWithAnonymousInner", Junit4TimeoutTransform.Applicability.APPLICABLE),
+        TestDef("JunitWithAnonymousInner\$1", Junit4TimeoutTransform.Applicability.NOT_TESTCLASS),
+        TestDef("HasMultipleConstructors", Junit4TimeoutTransform.Applicability.NOT_TESTCLASS),
+        TestDef("BasicJunitTestWithSecondaryPrivateConstructor", Junit4TimeoutTransform.Applicability.APPLICABLE),
+        TestDef("UsesJmockit", Junit4TimeoutTransform.Applicability.APPLICABLE),
+        TestDef("UsesJmockit$1", Junit4TimeoutTransform.Applicability.NOT_TESTCLASS),
+        TestDef("UsesJmockit$2", Junit4TimeoutTransform.Applicability.NOT_TESTCLASS),
+        TestDef("HasMultipleConstructors", Junit4TimeoutTransform.Applicability.NOT_TESTCLASS))
 
 class Junit4TimeoutTransformTest : Spek({
     given("a junit4TimeoutTransform") {
@@ -42,23 +54,39 @@ class Junit4TimeoutTransformTest : Spek({
                 cl = unmodifiedClassloader,
                 timeoutDurationMillis = 1L)
 
-        tests.forEach {
-            val classToTransform = unmodifiedClassloader.loadClass("com.tableau.modules.gradle.${it.name}")
-            on("evaluating class ${it.name} transform applicability") {
-                it("should determine that ${it.name}.class applicability is ${it.expectedApplicability}") {
+        for (test in tests) {
+            val classToTransform = unmodifiedClassloader.loadClass("com.tableau.modules.gradle.${test.name}")
+            on("evaluating class ${test.name} transform applicability") {
+                it("evaluates ${test.name}.class applicability as ${test.expectedApplicability}") {
                     val actualApplicability = junit4TimeoutTransform.isApplicable(classToTransform)
-                    assertEquals(it.expectedApplicability, actualApplicability)
+                    assertEquals(test.expectedApplicability, actualApplicability)
                 }
             }
-            if (it.expectedApplicability.shouldTransform) {
-                on("applying the Junit4TimeoutTransform") {
+            if (test.expectedApplicability.shouldTransform) {
+                on("applying the Junit4TimeoutTransform to ${test.name}") {
                     val modifiedBytecode = junit4TimeoutTransform.apply(classToTransform)
 
-                    it("the resulting bytes should be a valid Java .class file according to ASM") {
+                    val modifiedClassDirectory = createTempDir()
+                    File(modifiedClassDirectory, "com/tableau/modules/gradle/${test.name}.class").apply {
+                        parentFile.mkdirs()
+                        createNewFile()
+                        writeBytes(modifiedBytecode)
+                    }
+
+                    File(samplesBuildDir, "com/tableau/modules/gradle/").apply {
+                        // Also copy the untouched inner classes so that subsequent steps may load them and proceed
+                        // For the same reason, copy the superclass so long as it isn't just 'Object'
+                        listFiles { _, name -> name.startsWith("${test.name}\$") || name.startsWith(classToTransform.superclass.simpleName) }
+                            .forEach { it.copyTo(File(modifiedClassDirectory, "com/tableau/modules/gradle/${it.name}")) }
+                    }
+
+                    val modifiedClassloader = URLClassLoader(arrayOf(modifiedClassDirectory.toURI().toURL()), this.javaClass.classLoader)
+                    val modifiedClass = modifiedClassloader.loadClass("com.tableau.modules.gradle.${test.name}")
+                    it("produces a transformed ${test.name} that is a valid .class file according to ASM") {
                         val stringWriter = StringWriter()
                         val writer = PrintWriter(stringWriter)
                         val modifiedReader = ClassReader(modifiedBytecode)
-                        CheckClassAdapter.verify(modifiedReader, null, false, writer)
+                        CheckClassAdapter.verify(modifiedReader, modifiedClassloader, false, writer)
 
                         val verificationText = stringWriter.toString()
                         if (verificationText.contains("Exception")) {
@@ -66,37 +94,22 @@ class Junit4TimeoutTransformTest : Spek({
                         }
                     }
 
-                    val modifiedClassDirectory = createTempDir()
-                    File(modifiedClassDirectory, "com/tableau/modules/gradle/${it.name}.class").apply {
-                        parentFile.mkdirs()
-                        createNewFile()
-                        writeBytes(modifiedBytecode)
-                    }
-
-                    val cl = URLClassLoader(arrayOf(modifiedClassDirectory.toURI().toURL()), this.javaClass.classLoader)
-                    val modifiedClass = cl.loadClass("com.tableau.modules.gradle.${it.name}")
-
-                    it("the resulting bytes should evaluate as NOT being applicable for transform") {
+                    it("evaluates the resulting bytes of ${test.name} as NOT being applicable for transform") {
                         assertEquals(Junit4TimeoutTransform.Applicability.EXISTENT_TIMEOUT, junit4TimeoutTransform.isApplicable(modifiedClass))
                     }
 
-                    val timeoutField = modifiedClass.getField(Junit4TimeoutTransform.timeoutFieldName)
-                    it("The added field to the class is of type ${org.junit.rules.Timeout::class.java}") {
-                        assertEquals(org.junit.rules.Timeout::class.java, timeoutField.type)
-                    }
-
+                    val timeoutField = modifiedClass.getField(test.expectedFieldName)
                     val modifiedInstance = modifiedClass.newInstance()
                     val timeoutFieldValue = timeoutField.get(modifiedInstance)
-                    it("the added field should be initialized to a non-null value") {
+                    it("produces a ${org.junit.rules.Timeout::class.java} field on ${test.name} that is initialized to an instance of ${org.junit.rules.Timeout::class.java}") {
+                        assertEquals(org.junit.rules.Timeout::class.java, timeoutField.type)
                         assertNotNull(timeoutFieldValue)
-                    }
-                    it("the added field is initialized to an instance of ${org.junit.rules.Timeout::class.java}") {
                         assertTrue(timeoutFieldValue is org.junit.rules.Timeout)
                     }
 
                     val junit4Core = JUnitCore()
                     val result = junit4Core.run(modifiedClass)
-                    it("${it.name} will timeout when run by Junit4") {
+                    it("produces a ${test.name} that times out when run by Junit4") {
                         assertTrue(result.failures.first().exception is TestTimedOutException)
                     }
                 }

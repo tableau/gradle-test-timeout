@@ -48,6 +48,7 @@ public class TimeoutEnforcerPlugin : Plugin<Project> {
 
                 // Ensure that changing the timeout value in the DSL would cause recompilation
                 compileTestTask.inputs.property("timeoutMillis", enforcementSpec.timeoutMillis)
+                // TODO: Determine if additional inputs need to be declared to prevent false up-to-date ?
 
                 // Add the action which actually does the transformation
                 val transformActionName = enforcementSpec.actionName()
@@ -96,16 +97,23 @@ public class TimeoutEnforcerPlugin : Plugin<Project> {
         val candidateClasses = sourceSet.output
                 .classesDirs
                 .flatMap { project.fileTree(it).files }
-                .filter { it.name.endsWith(".class") } // Skip resource files
+                // Skip resource files
+                .filter { it.name.endsWith(".class") }
+                // Skip inner classes/closures, we only care about top-level
+                .filterNot { it.name.contains("$") }
                 .map {
-                    val loadableName = it.relativeTo(compileTestTask.destinationDir).toString()
-                            .replace(Regex("""[/\\]"""), ".")
-                            .replace(".class", "")
-                    TransformSpec(
-                            destination = it,
-                            className = loadableName,
-                            applicability = timeoutTransformer.isApplicable(loadableName)
-                    )
+                    try {
+                        val loadableName = it.relativeTo(compileTestTask.destinationDir).toString()
+                                .replace(Regex("""[/\\]"""), ".")
+                                .replace(".class", "")
+                        TransformSpec(
+                                destination = it,
+                                className = loadableName,
+                                applicability = timeoutTransformer.isApplicable(loadableName)
+                        )
+                    } catch (e: Throwable) {
+                        throw RuntimeException("Problem determining transform applicability for $it", e)
+                    }
                 }
         log.debug("${project.path} sourceSet ${sourceSet.name} transform candidates: $candidateClasses")
 
@@ -113,14 +121,19 @@ public class TimeoutEnforcerPlugin : Plugin<Project> {
             it.applicability == Junit4TimeoutTransform.Applicability.APPLICABLE
         }
 
-        log.info("${project.path} sourceSet ${sourceSet.name} has ${applicableClasses.size} classes applicable for the Junit4TimeoutTransform. " +
-                "Applying transform with test timeout timeout ${enforcementSpec.timeoutMillis}ms")
+        log.info("${project.path} sourceSet ${sourceSet.name} has ${applicableClasses.size} classes applicable" +
+                " for the Junit4TimeoutTransform. Applying transform with test timeout timeout " +
+                "${enforcementSpec.timeoutMillis}ms")
 
         // TODO: Parallelize per file? Either directly with coroutines or via gradle worker api.
         // Measure perf hit from this additional step and decide accordingly
         applicableClasses.forEach {
             log.debug("Applying Junit Timeout Transform to ${it.destination}")
-            it.destination.writeBytes(timeoutTransformer.apply(it.destination))
+            try {
+                it.destination.writeBytes(timeoutTransformer.apply(it.destination))
+            } catch (e: Throwable) {
+                throw RuntimeException("Problem applying transformation to ${it.className}", e)
+            }
         }
     }
 
