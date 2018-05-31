@@ -6,9 +6,7 @@ import org.gradle.api.Project
 import org.gradle.api.Task
 import org.gradle.api.logging.Logger
 import org.gradle.api.logging.Logging
-import org.gradle.api.plugins.JavaPluginConvention
-import org.gradle.api.tasks.SourceSet
-import org.gradle.api.tasks.compile.JavaCompile
+import org.gradle.api.tasks.testing.Test
 import java.io.File
 import java.net.URLClassLoader
 import java.util.concurrent.TimeUnit
@@ -28,23 +26,27 @@ public class TimeoutEnforcerPlugin : Plugin<Project> {
     )
 
     override fun apply(project: Project) {
-        val javaConvention = project.convention.findPlugin(JavaPluginConvention::class.java)
-                ?: throw RuntimeException("project ${project.path} must apply a Java plugin before applying TimeoutEnforcerPlugin")
 
         // Keep track of actions added to CompileJava tasks so they can be removed later if necessary
         val actions = mutableMapOf<String, Action<Task>>()
 
-        // Add the extension and set the defaults
-        val enforcerExtension = project.container(TimeoutSpec::class.java)
-
+        // Create and configure the extension
+        // Supply a factory method that sets sensible defaults and provides a reference to the project
+        val enforcerExtension = project.container(TimeoutSpec::class.java,
+                { testTaskName ->
+                    TimeoutSpec(
+                        project = project,
+                        testTaskName = testTaskName,
+                        timeout = 1,
+                        timeoutUnits = TimeUnit.MINUTES)
+                })
         enforcerExtension.apply {
             /**
              * When an entry is added to the DSL modify the corresponding compile task action to include the
              * bytecode transformation
              */
             whenObjectAdded { enforcementSpec ->
-                val sourceSet = javaConvention.sourceSets.getByName(enforcementSpec.sourceSetName)
-                val compileTestTask = project.tasks.getByName(sourceSet.compileJavaTaskName) as JavaCompile
+                val compileTestTask = enforcementSpec.compileTestTask
 
                 // Ensure that changing the timeout value in the DSL would cause recompilation
                 compileTestTask.inputs.property("timeoutMillis", enforcementSpec.timeoutMillis)
@@ -52,7 +54,7 @@ public class TimeoutEnforcerPlugin : Plugin<Project> {
 
                 // Add the action which actually does the transformation
                 val transformActionName = enforcementSpec.actionName()
-                val transformTaskAction = compileTestTask.transformActionFor(enforcementSpec, sourceSet)
+                val transformTaskAction = enforcementSpec.getTransformTaskAction()
 
                 actions[transformActionName] = transformTaskAction
                 compileTestTask.doLast(transformActionName, transformTaskAction)
@@ -62,30 +64,22 @@ public class TimeoutEnforcerPlugin : Plugin<Project> {
              * Only likely to be called if the DSL is used to completely remove the default timeout policy
              */
             whenObjectRemoved { enforcementSpec ->
-                val sourceSet = javaConvention.sourceSets.getByName(enforcementSpec.sourceSetName)
-                val compileTestTask = project.tasks.getByName(sourceSet.compileJavaTaskName) as JavaCompile
-
                 val action = actions.remove(enforcementSpec.actionName())
-                compileTestTask.actions.remove(action)
+                enforcementSpec.compileTestTask.actions.remove(action)
             }
-
-            /**
-             * Default timeout policy
-             */
-            add(TimeoutSpec(sourceSetName = "test", timeout = 10, timeoutUnits = TimeUnit.MINUTES))
         }
 
-        project.extensions.add("testTimeoutPolicy", enforcerExtension)
+        project.extensions.add(TimeoutSpec.defaultExtensionName, enforcerExtension)
     }
 
     /**
      * Get a transform action which may be added to a JavaCompile
      */
-    private fun JavaCompile.transformActionFor(enforcementSpec: TimeoutSpec, sourceSet: SourceSet): Action<Task> = Action {
-        val compileTestTask = this
+    private fun TimeoutSpec.getTransformTaskAction(): Action<Task> = Action {
+        val enforcementSpec = this
+        val testTask: Test = enforcementSpec.testTask
 
-        val cl = compileTestTask.classpath
-                .plus(sourceSet.output.classesDirs)
+        val cl = testTask.classpath
                 .map { it.toURI().toURL() }
                 .toTypedArray()
                 .let { URLClassLoader(it) }
@@ -94,11 +88,7 @@ public class TimeoutEnforcerPlugin : Plugin<Project> {
                 timeoutDurationMillis = enforcementSpec.timeoutMillis,
                 cl = cl)
 
-        val candidateClasses = sourceSet.output
-                .classesDirs
-                .flatMap { project.fileTree(it).files }
-                // Skip resource files
-                .filter { it.name.endsWith(".class") }
+        val candidateClasses = testTask.candidateClassFiles
                 // Skip inner classes/closures, we only care about top-level
                 .filterNot { it.name.contains("$") }
                 .map {
@@ -115,13 +105,13 @@ public class TimeoutEnforcerPlugin : Plugin<Project> {
                         throw RuntimeException("Problem determining transform applicability for $it", e)
                     }
                 }
-        log.debug("${project.path} sourceSet ${sourceSet.name} transform candidates: $candidateClasses")
+        log.debug("${testTask.path} transform candidates: $candidateClasses")
 
         val applicableClasses = candidateClasses.filter {
             it.applicability == Junit4TimeoutTransform.Applicability.APPLICABLE
         }
 
-        log.info("${project.path} sourceSet ${sourceSet.name} has ${applicableClasses.size} classes applicable" +
+        log.info("${testTask.path} has ${applicableClasses.size} classes applicable" +
                 " for the Junit4TimeoutTransform. Applying transform with test timeout timeout " +
                 "${enforcementSpec.timeoutMillis}ms")
 
@@ -137,5 +127,5 @@ public class TimeoutEnforcerPlugin : Plugin<Project> {
         }
     }
 
-    private fun TimeoutSpec.actionName(): String = "${this.sourceSetName}TimeoutTransform"
+    private fun TimeoutSpec.actionName(): String = "${this.testTaskName}TimeoutTransform"
 }
