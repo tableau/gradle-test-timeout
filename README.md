@@ -55,6 +55,9 @@ class configureTimeoutPolicy implements Plugin<Project> {
 
 ## Limitations
 
+* Due to the nature of JUnit4 Rules, cannot prevent deadlocks/hangs in test class initialization.
+this is most noticable with runners that do a lot of heavy lifting during this phase like 
+[SpringJUnit4ClassRunner](https://docs.spring.io/autorepo/docs/spring-framework/3.2.8.RELEASE/javadoc-api/org/springframework/test/context/junit4/SpringJUnit4ClassRunner.html)
 * Only works on JVM languages. Only tested against Java. 
 * Only works on JUnit4 based test runners. Untested with JUnit5 legacy engine or Spock but it might work
 * The timeout is implemented as a Junit4 [Rule](https://github.com/junit-team/junit4/wiki/rules), so it changes the thread the test itself runs in. So certain
