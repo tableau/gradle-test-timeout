@@ -17,9 +17,6 @@ data class TimeoutSpec(
     var timeout: Long,
     var timeoutUnits: TimeUnit
 ) : Named {
-    companion object {
-        const val defaultExtensionName: String = "testTimeoutPolicy"
-    }
 
     // NamedDomainObjectContainer insists that getName() exist, but enforces it at runtime rather by actually
     // constraining the type parameter. Seems a bit strange to me... but perhaps that's natural given
@@ -55,4 +52,9 @@ data class TimeoutSpec(
 
     val timeoutMillis: Long
         get() = timeoutUnits.toMillis(timeout)
+
+    /**
+     * Allow this type of object to be configured through a DSL-looking syntax
+     */
+    operator fun invoke(action: TimeoutSpec.() -> Unit): TimeoutSpec = apply(action)
 }
