@@ -1,11 +1,11 @@
 # Gradle Test Timeout Plugin
-This project exists to prevent badly behaved tests or product code under test from 
-hanging the build. Tests that exceed the specified timeout will fail with a 
+This project exists to prevent badly behaved tests or product code under test from
+hanging the build. Tests that exceed the specified timeout will fail with a
 [TestTimedOutException](https://junit.org/junit4/javadoc/4.12/org/junit/runners/model/TestTimedOutException.html).
 
 ## Usage
 This plugin can generally be applied drop-in to any Java project with JUnit4 testing without having to modify any
-indvidual tests. Note that the plugin will have no effect if the `testTimeoutPolicy` DSL is not configured. 
+indvidual tests. Note that the plugin will have no effect if the `testTimeoutPolicy` DSL is not configured.
 This policy is expected to be used as baseline so precedence is given to an individual test's timeout configuration.
 
 
@@ -28,7 +28,7 @@ testTimeoutPolicy {
     // The name of the test task to apply the policy to
     test {
         timeout = 1
-        timeoutUnits = 'MINUTES' // may supply any value of java.util.concurrent.TimeUnit 
+        timeoutUnits = 'MINUTES' // may supply any value of java.util.concurrent.TimeUnit
     }
     someOtherTestTask {
         timeout = 100
@@ -37,18 +37,28 @@ testTimeoutPolicy {
 }
 ```
 
-In statically-compiled Groovy or a similar statically typed language like Java or Kotlin, 
+In statically-compiled Groovy or a similar statically typed language like Java or Kotlin,
 applying & configuring this plugin might look like this:
 ```groovy
+import org.gradle.api.Plugin
+import org.gradle.api.Project
+import com.tableau.modules.gradle.TimeoutEnforcerPlugin
+import java.util.concurrent.TimeUnit
+
 @CompileStatic
 class configureTimeoutPolicy implements Plugin<Project> {
     @Override void apply(Project project) {
-        project.plugins.apply(com.tableau.modules.gradle.TimeoutEnforcerPlugin)
-        def testTimeoutPolicy = project.extensions.getByName('testTimeoutPolicy') as NamedDomainObjectCollection<TimeoutSpec>
-        
-        // The DSL definitely looks nicer in dynamic-groovy, but what DSL doesn't? 
-        testTimeoutPolicy.add(new TimeoutSpec(project,'test', 1, TimeUnit.MINUTES))
-        testTimeoutPolicy.add(new TimeoutSpec(project,'someOtherTestTask', 100, TimeUnit.SECONDS))
+        TimeoutPolicyExtension testTimeoutPolicy = project.plugins.apply(TimeoutEnforcerPlugin).testTimeoutPolicy
+
+        testTimeoutPolicy.with {
+            // Either syntax for adding a new timeout policy works
+            policy('test') {
+                it.timeout = 1
+                it.timeoutUnits = TimeUnit.MINUTES
+            }
+
+            policy('someOtherTestTask', 100, TimeUnit.SECONDS)
+        }
     }
 }
 ```
@@ -56,16 +66,17 @@ class configureTimeoutPolicy implements Plugin<Project> {
 ## Limitations
 
 * Due to the nature of JUnit4 Rules, cannot prevent deadlocks/hangs in test class initialization.
-this is most noticable with runners that do a lot of heavy lifting during this phase like 
+this is most noticable with runners that do a lot of heavy lifting during this phase like
 [SpringJUnit4ClassRunner](https://docs.spring.io/autorepo/docs/spring-framework/3.2.8.RELEASE/javadoc-api/org/springframework/test/context/junit4/SpringJUnit4ClassRunner.html)
-* Only works on JVM languages. Only tested against Java. 
+* Only works on JVM languages. Only tested against Java.
 * Only works on JUnit4 based test runners. Untested with JUnit5 legacy engine or Spock but it might work
-* The timeout is implemented as a Junit4 [Rule](https://github.com/junit-team/junit4/wiki/rules), so it changes the thread the test itself runs in. So certain
-kinds of state-leackage between tests or [ThreadLocal](https://docs.oracle.com/javase/8/docs/api/java/lang/ThreadLocal.html) variables 
+* The timeout is implemented as a Junit4 [Rule](https://github.com/junit-team/junit4/wiki/rules), so it changes the thread the test itself runs in.
+So certain kinds of state-leackage between tests or usage of [ThreadLocal](https://docs.oracle.com/javase/8/docs/api/java/lang/ThreadLocal.html)
+variables may necessitate some modification of test code to continue working.
 
-## How It Works 
+## How It Works
 
-This project uses [asm](http://asm.ow2.io/) to modify the bytecode produced by normal compilation 
+This project uses [asm](http://asm.ow2.io/) to modify the bytecode produced by normal compilation
 for tests to add a JUnit4 [Timeout](https://junit.org/junit4/javadoc/4.12/org/junit/rules/Timeout.html) [Rule](https://junit.org/junit4/javadoc/4.12/org/junit/Rule.html).
 
 This effectively takes a test class like this one:
@@ -106,6 +117,9 @@ import java.util.concurrent.TimeUnit;
 
 public class BasicJunitTest {
 
+    @Rule
+    public Timeout timeout = new Timeout(5000L, TimeUnit.MILLISECONDS);
+
     @Test
     public void noopTest() {
         System.out.println("noopTest nooping right along");
@@ -116,8 +130,5 @@ public class BasicJunitTest {
         System.out.println("sleepFor10s test about to sleep");
         Thread.sleep(10*1000);
     }
-
-    @Rule
-    public Timeout timeout = new Timeout(5000L, TimeUnit.MILLISECONDS);
 }
 ```

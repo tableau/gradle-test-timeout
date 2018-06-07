@@ -25,22 +25,20 @@ public class TimeoutEnforcerPlugin : Plugin<Project> {
         val applicability: Junit4TimeoutTransform.Applicability
     )
 
+    /**
+     * Convenience getter for the extension added to a project by this plugin
+     */
+    var testTimeoutPolicy: TimeoutPolicyExtension? = null
+        private set(value) { field = value }
+
     override fun apply(project: Project) {
-
-        // Keep track of actions added to CompileJava tasks so they can be removed later if necessary
-        val actions = mutableMapOf<String, Action<Task>>()
-
         // Create and configure the extension
         // Supply a factory method that sets sensible defaults and provides a reference to the project
-        val enforcerExtension = project.container(TimeoutSpec::class.java,
-                { testTaskName ->
-                    TimeoutSpec(
-                        project = project,
-                        testTaskName = testTaskName,
-                        timeout = 1,
-                        timeoutUnits = TimeUnit.MINUTES)
-                })
-        enforcerExtension.apply {
+        val enforcerExtension = TimeoutPolicyExtension(project, defaultTimeout = 1, defaultTimeUnit = TimeUnit.MINUTES) {
+
+            // Keep track of actions added to CompileJava tasks so they can be removed later if necessary
+            val actions = mutableMapOf<String, Action<Task>>()
+
             /**
              * When an entry is added to the DSL modify the corresponding compile task action to include the
              * bytecode transformation
@@ -68,8 +66,8 @@ public class TimeoutEnforcerPlugin : Plugin<Project> {
                 enforcementSpec.compileTestTask.actions.remove(action)
             }
         }
-
-        project.extensions.add(TimeoutSpec.defaultExtensionName, enforcerExtension)
+        testTimeoutPolicy = enforcerExtension
+        project.extensions.add(TimeoutPolicyExtension.defaultExtensionName, enforcerExtension)
     }
 
     /**
