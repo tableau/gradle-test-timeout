@@ -47,7 +47,7 @@ public class TimeoutEnforcerPlugin : Plugin<Project> {
                 val compileTestTask = enforcementSpec.compileTestTask
 
                 // Ensure that changing the timeout value in the DSL would cause recompilation
-                compileTestTask.inputs.property("timeoutMillis", enforcementSpec.timeoutMillis)
+                compileTestTask.inputs.property("${enforcementSpec.actionName()}TimeoutMillis", enforcementSpec.timeoutMillis)
                 // TODO: Determine if additional inputs need to be declared to prevent false up-to-date ?
 
                 // Add the action which actually does the transformation

@@ -65,6 +65,30 @@ class TimeoutEnforcerPluginTest : Spek({
             }
         """.trimIndent())
 
+        val alreadyHasTimeoutSourceFile = File(testSrcDir, "AlreadyHasTimeoutTests.java")
+        alreadyHasTimeoutSourceFile.writeText("""
+            package com.tableau.whatever;
+
+            import org.junit.Rule;
+            import org.junit.Test;
+            import org.junit.rules.Timeout;
+
+            import java.lang.Thread;
+            import java.lang.System;
+            import java.util.concurrent.TimeUnit;
+
+            public class AlreadyHasTimeoutTests {
+                @Rule
+                public Timeout timeout = new Timeout(1L, TimeUnit.SECONDS);
+
+                @Test
+                public void sleepFor50ms() throws Exception {
+                    System.out.println("sleepFor50ms test about to sleep");
+                    Thread.sleep(50);
+                }
+            }
+        """.trimIndent())
+
         val inapplicableTestSourceFile = File(testSrcDir, "InapplicableTests.java")
         inapplicableTestSourceFile.writeText("""
             package com.tableau.whatever;
@@ -93,6 +117,19 @@ class TimeoutEnforcerPluginTest : Spek({
 
             it("fails the test") {
                 assertEquals(TaskOutcome.FAILED, testTask.outcome)
+            }
+        }
+
+        on("running a test which has its own, longer timeout") {
+            val result = GradleRunner.create()
+                    .withProjectDir(testProjectDir)
+                    .withPluginClasspath()
+                    .withArguments("test", "--stacktrace", "--info", "--no-scan", "--tests", "com.tableau.whatever.AlreadyHasTimeoutTests.sleepFor50ms")
+                    .build()
+            val testTask = result.tasks.find { it.path == ":test" }!!
+            println(result.output)
+            it("succeeds at running the test") {
+                assertEquals(TaskOutcome.SUCCESS, testTask.outcome)
             }
         }
 
