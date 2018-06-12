@@ -1,6 +1,5 @@
 package com.tableau.modules.gradle
 
-import org.junit.rules.Timeout
 import org.objectweb.asm.ClassReader
 import org.objectweb.asm.ClassWriter
 import org.objectweb.asm.ClassWriter.COMPUTE_MAXS
@@ -71,9 +70,10 @@ class Junit4TimeoutTransform(
      */
     private fun Class<*>.hasTimeoutRuleField(): Boolean =
             this.fields
-                .filter { it.annotations.find { it.annotationClass.qualifiedName == "org.junit.Rule" } != null }
-                .find { it.type == Timeout::class.java && Modifier.isPublic(it.modifiers) && !Modifier.isStatic(it.modifiers) }
-                ?.let { true } ?: false
+                .filter {
+                    it.annotations.find { it.annotationClass.qualifiedName == "org.junit.Rule" } != null &&
+                    it.type.name == "org.junit.rules.Timeout" && Modifier.isPublic(it.modifiers) && !Modifier.isStatic(it.modifiers)
+                }.let { it.isNotEmpty() }
 
     /**
      * Returns true if the class has any visible method annotated with @org.junit.Test
