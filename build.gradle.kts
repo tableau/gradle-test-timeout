@@ -3,7 +3,7 @@ import com.google.googlejavaformat.java.Formatter
 
 plugins {
     id("java-gradle-plugin")
-    id("com.tableau.nerv-java-lib-module-plugin") version("1.1.9")
+    id("com.tableau.nerv-java-lib-module-plugin") version("2.2.0")
     id("org.jmailen.kotlinter") version("1.11.3")
     id("maven-publish")
     kotlin("jvm") version("1.2.41")

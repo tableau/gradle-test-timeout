@@ -77,52 +77,53 @@ public class TimeoutEnforcerPlugin : Plugin<Project> {
         val enforcementSpec = this
         val testTask: Test = enforcementSpec.testTask
 
-        val cl = testTask.classpath
-                .map { it.toURI().toURL() }
-                .toTypedArray()
-                .let { URLClassLoader(it) }
+        testTask.classpath
+            .map { it.toURI().toURL() }
+            .toTypedArray()
+            .let { URLClassLoader(it) }
+            .use { cl ->
+                val timeoutTransformer = Junit4TimeoutTransform(
+                        timeoutDurationMillis = enforcementSpec.timeoutMillis,
+                        cl = cl)
 
-        val timeoutTransformer = Junit4TimeoutTransform(
-                timeoutDurationMillis = enforcementSpec.timeoutMillis,
-                cl = cl)
+                val candidateClasses = testTask.candidateClassFiles
+                        // Skip inner classes/closures, we only care about top-level
+                        .filterNot { it.name.contains("$") }
+                        .map {
+                            try {
+                                val loadableName = it.relativeTo(compileTestTask.destinationDir).toString()
+                                        .replace(Regex("""[/\\]"""), ".")
+                                        .replace(".class", "")
+                                TransformSpec(
+                                        destination = it,
+                                        className = loadableName,
+                                        applicability = timeoutTransformer.isApplicable(loadableName)
+                                )
+                            } catch (e: Throwable) {
+                                throw RuntimeException("Problem determining transform applicability for $it", e)
+                            }
+                        }
+                log.debug("${testTask.path} transform candidates: $candidateClasses")
 
-        val candidateClasses = testTask.candidateClassFiles
-                // Skip inner classes/closures, we only care about top-level
-                .filterNot { it.name.contains("$") }
-                .map {
+                val applicableClasses = candidateClasses.filter {
+                    it.applicability == Junit4TimeoutTransform.Applicability.APPLICABLE
+                }
+
+                log.info("${testTask.path} has ${applicableClasses.size} classes applicable" +
+                        " for the Junit4TimeoutTransform. Applying transform with test timeout timeout " +
+                        "${enforcementSpec.timeoutMillis}ms")
+
+                // TODO: Parallelize per file? Either directly with coroutines or via gradle worker api.
+                // Measure perf hit from this additional step and decide accordingly
+                applicableClasses.forEach {
+                    log.debug("Applying Junit Timeout Transform to ${it.destination}")
                     try {
-                        val loadableName = it.relativeTo(compileTestTask.destinationDir).toString()
-                                .replace(Regex("""[/\\]"""), ".")
-                                .replace(".class", "")
-                        TransformSpec(
-                                destination = it,
-                                className = loadableName,
-                                applicability = timeoutTransformer.isApplicable(loadableName)
-                        )
+                        it.destination.writeBytes(timeoutTransformer.apply(it.destination))
                     } catch (e: Throwable) {
-                        throw RuntimeException("Problem determining transform applicability for $it", e)
+                        throw RuntimeException("Problem applying transformation to ${it.className}", e)
                     }
                 }
-        log.debug("${testTask.path} transform candidates: $candidateClasses")
-
-        val applicableClasses = candidateClasses.filter {
-            it.applicability == Junit4TimeoutTransform.Applicability.APPLICABLE
-        }
-
-        log.info("${testTask.path} has ${applicableClasses.size} classes applicable" +
-                " for the Junit4TimeoutTransform. Applying transform with test timeout timeout " +
-                "${enforcementSpec.timeoutMillis}ms")
-
-        // TODO: Parallelize per file? Either directly with coroutines or via gradle worker api.
-        // Measure perf hit from this additional step and decide accordingly
-        applicableClasses.forEach {
-            log.debug("Applying Junit Timeout Transform to ${it.destination}")
-            try {
-                it.destination.writeBytes(timeoutTransformer.apply(it.destination))
-            } catch (e: Throwable) {
-                throw RuntimeException("Problem applying transformation to ${it.className}", e)
             }
-        }
     }
 
     private fun TimeoutSpec.actionName(): String = "${this.testTaskName}TimeoutTransform"

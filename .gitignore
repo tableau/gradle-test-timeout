@@ -6,3 +6,7 @@ build
 /coverage-report/
 .DS_Store
 out/
+bin/
+.settings/
+.project
+.classpath
