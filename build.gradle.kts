@@ -33,10 +33,12 @@ val jmockitVersion = "1.24"
 dependencies {
     compile(kotlin("stdlib-jdk8"))
     compile(kotlin("reflect"))
-    compile("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8:0.22.5") {
+    /*
+    compile("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8:0.26.1") {
         // Tries to bring in earlier versions of kotlin libs than we're using
         exclude(group = "org.jetbrains.kotlin")
     }
+    */
     compile("junit:junit:4.12")
 
     "samplesCompile"("junit:junit:4.12")
