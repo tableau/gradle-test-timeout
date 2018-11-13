@@ -2,8 +2,7 @@ package com.tableau.modules.gradle
 
 import org.gradle.api.Named
 import org.gradle.api.Project
-import org.gradle.api.plugins.JavaPluginConvention
-import org.gradle.api.tasks.SourceSet
+import org.gradle.api.tasks.TaskProvider
 import org.gradle.api.tasks.compile.JavaCompile
 import org.gradle.api.tasks.testing.Test
 import java.util.concurrent.TimeUnit
@@ -14,6 +13,7 @@ import java.util.concurrent.TimeUnit
 data class TimeoutSpec(
     val project: Project,
     val testTaskName: String,
+    val compileTestTaskName: String = "compileTestJava",
     var timeout: Long,
     var timeoutUnits: TimeUnit
 ) : Named {
@@ -24,26 +24,18 @@ data class TimeoutSpec(
     override fun getName(): String = testTaskName
 
     /**
-     * Convenience getter for retrieving the sourceSet corresponding to the given test task.
-     * One sourceSet can correspond to many test tasks, but each test task will have only one associated sourceSet
-     * So look for a sourceSet whose outputs overlap with the inputs of a test task's inputs
+     * Convenience getter for retrieving the Test task associated with this spec
      */
-    val sourceSet: SourceSet
-        get() = project.convention.getPlugin(JavaPluginConvention::class.java)
-                .sourceSets.find { it.output.classesDirs.intersect(testTask.testClassesDirs).isNotEmpty() }
-                ?: throw IllegalArgumentException("Couldn't find sourceSet corresponding to $testTask")
-
-    /**
-     * Convenience getter for retrieving the Test task associated with
-     */
-    val testTask: Test
-        get() = project.tasks.getByName(testTaskName) as Test
+    @Suppress("UNCHECKED_CAST")
+    val testTask: TaskProvider<Test>
+        get() = project.tasks.named(testTaskName) as TaskProvider<Test>
 
     /**
      * Convenience getter for the task which compiles the code to be transformed
      */
-    val compileTestTask: JavaCompile
-        get() = project.tasks.getByName(sourceSet.compileJavaTaskName) as JavaCompile
+    @Suppress("UNCHECKED_CAST")
+    val compileTestTask: TaskProvider<JavaCompile>
+        get() = project.tasks.named(compileTestTaskName) as TaskProvider<JavaCompile>
 
     // So that a build.gradle doesn't have to fully qualify or import java.util.concurrent.TimeUnit
     fun timeoutUnits(unit: String) {

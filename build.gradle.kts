@@ -3,10 +3,10 @@ import com.google.googlejavaformat.java.Formatter
 
 plugins {
     id("java-gradle-plugin")
-    id("com.tableau.nerv-java-lib-module-plugin") version("2.2.0")
+    id("com.tableau.nerv-java-lib-module-plugin") version("4.8.0")
     id("org.jmailen.kotlinter") version("1.11.3")
     id("maven-publish")
-    kotlin("jvm") version("1.2.41")
+    kotlin("jvm") version("1.2.70")
 }
 buildscript {
     dependencies.add("classpath","com.google.googlejavaformat:google-java-format:1.5" )
@@ -16,7 +16,7 @@ buildscript {
 // They are not tests *for* this project, but they are used *by* this project's tests
 java {
     sourceSets {
-        "samples" {
+        create("samples") {
             java {
                 srcDir(project.file("src/samples/java"))
             }
@@ -33,10 +33,12 @@ val jmockitVersion = "1.24"
 dependencies {
     compile(kotlin("stdlib-jdk8"))
     compile(kotlin("reflect"))
-    compile("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8:0.22.5") {
+    /*
+    compile("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8:0.26.1") {
         // Tries to bring in earlier versions of kotlin libs than we're using
         exclude(group = "org.jetbrains.kotlin")
     }
+    */
     compile("junit:junit:4.12")
 
     "samplesCompile"("junit:junit:4.12")
@@ -58,8 +60,8 @@ dependencies {
 }
 
 gradlePlugin {
-    (plugins) {
-        "simplePlugin" {
+    plugins {
+        register("simplePlugin") {
             id = "com.tableau.modules.timeout-enforcer"
             implementationClass = "com.tableau.modules.gradle.TimeoutEnforcerPlugin"
         }
