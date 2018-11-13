@@ -6,7 +6,7 @@ import org.gradle.api.Project
 import org.gradle.api.Task
 import org.gradle.api.logging.Logger
 import org.gradle.api.logging.Logging
-import org.gradle.api.tasks.testing.Test
+import org.gradle.api.tasks.TaskProvider
 import java.io.File
 import java.net.URLClassLoader
 import java.util.concurrent.TimeUnit
@@ -44,18 +44,17 @@ public class TimeoutEnforcerPlugin : Plugin<Project> {
              * bytecode transformation
              */
             whenObjectAdded { enforcementSpec ->
-                val compileTestTask = enforcementSpec.compileTestTask
+                enforcementSpec.compileTestTask.with {
+                    // Ensure that changing the timeout value in the DSL would cause recompilation
+                    inputs.property("${enforcementSpec.actionName()}TimeoutMillis", enforcementSpec.timeoutMillis)
 
-                // Ensure that changing the timeout value in the DSL would cause recompilation
-                compileTestTask.inputs.property("${enforcementSpec.actionName()}TimeoutMillis", enforcementSpec.timeoutMillis)
-                // TODO: Determine if additional inputs need to be declared to prevent false up-to-date ?
+                    // Add the action which actually does the transformation
+                    val transformActionName = enforcementSpec.actionName()
+                    val transformTaskAction = enforcementSpec.getTransformTaskAction()
 
-                // Add the action which actually does the transformation
-                val transformActionName = enforcementSpec.actionName()
-                val transformTaskAction = enforcementSpec.getTransformTaskAction()
-
-                actions[transformActionName] = transformTaskAction
-                compileTestTask.doLast(transformActionName, transformTaskAction)
+                    actions[transformActionName] = transformTaskAction
+                    doLast(transformActionName, transformTaskAction)
+                }
             }
 
             /**
@@ -63,7 +62,9 @@ public class TimeoutEnforcerPlugin : Plugin<Project> {
              */
             whenObjectRemoved { enforcementSpec ->
                 val action = actions.remove(enforcementSpec.actionName())
-                enforcementSpec.compileTestTask.actions.remove(action)
+                enforcementSpec.compileTestTask.with {
+                    this.actions.remove(action)
+                }
             }
         }
         testTimeoutPolicy = enforcerExtension
@@ -71,59 +72,67 @@ public class TimeoutEnforcerPlugin : Plugin<Project> {
     }
 
     /**
+     * Convenience function to avoid having to over-indent TaskProvider.configure{it.apply{}} all over the place
+     */
+    private fun <T : Task> TaskProvider<T>.with(configFun: T.() -> Unit): TaskProvider<T> {
+        configure(configFun)
+        return this
+    }
+
+    /**
      * Get a transform action which may be added to a JavaCompile
      */
     private fun TimeoutSpec.getTransformTaskAction(): Action<Task> = Action {
         val enforcementSpec = this
-        val testTask: Test = enforcementSpec.testTask
+        enforcementSpec.testTask.with {
+            classpath
+                .map { it.toURI().toURL() }
+                .toTypedArray()
+                .let { URLClassLoader(it) }
+                .use { cl ->
+                    val timeoutTransformer = Junit4TimeoutTransform(
+                            timeoutDurationMillis = enforcementSpec.timeoutMillis,
+                            cl = cl)
 
-        testTask.classpath
-            .map { it.toURI().toURL() }
-            .toTypedArray()
-            .let { URLClassLoader(it) }
-            .use { cl ->
-                val timeoutTransformer = Junit4TimeoutTransform(
-                        timeoutDurationMillis = enforcementSpec.timeoutMillis,
-                        cl = cl)
-
-                val candidateClasses = testTask.candidateClassFiles
-                        // Skip inner classes/closures, we only care about top-level
-                        .filterNot { it.name.contains("$") }
-                        .map {
-                            try {
-                                val loadableName = it.relativeTo(compileTestTask.destinationDir).toString()
-                                        .replace(Regex("""[/\\]"""), ".")
-                                        .replace(".class", "")
-                                TransformSpec(
-                                        destination = it,
-                                        className = loadableName,
-                                        applicability = timeoutTransformer.isApplicable(loadableName)
-                                )
-                            } catch (e: Throwable) {
-                                throw RuntimeException("Problem determining transform applicability for $it", e)
+                    val candidateClasses = candidateClassFiles
+                            // Skip inner classes/closures, we only care about top-level
+                            .filterNot { it.name.contains("$") }
+                            .map {
+                                try {
+                                    val loadableName = it.relativeTo(compileTestTask.get().destinationDir).toString()
+                                            .replace(Regex("""[/\\]"""), ".")
+                                            .replace(".class", "")
+                                    TransformSpec(
+                                            destination = it,
+                                            className = loadableName,
+                                            applicability = timeoutTransformer.isApplicable(loadableName)
+                                    )
+                                } catch (e: Throwable) {
+                                    throw RuntimeException("Problem determining transform applicability for $it", e)
+                                }
                             }
+                    log.debug("$path transform candidates: $candidateClasses")
+
+                    val applicableClasses = candidateClasses.filter {
+                        it.applicability == Junit4TimeoutTransform.Applicability.APPLICABLE
+                    }
+
+                    log.info("$testTask has ${applicableClasses.size} classes applicable" +
+                            " for the Junit4TimeoutTransform. Applying transform with test timeout timeout " +
+                            "${enforcementSpec.timeoutMillis}ms")
+
+                    // TODO: Parallelize per file? Either directly with coroutines or via gradle worker api.
+                    // Measure perf hit from this additional step and decide accordingly
+                    applicableClasses.forEach {
+                        log.debug("Applying Junit Timeout Transform to ${it.destination}")
+                        try {
+                            it.destination.writeBytes(timeoutTransformer.apply(it.destination))
+                        } catch (e: Throwable) {
+                            throw RuntimeException("Problem applying transformation to ${it.className}", e)
                         }
-                log.debug("${testTask.path} transform candidates: $candidateClasses")
-
-                val applicableClasses = candidateClasses.filter {
-                    it.applicability == Junit4TimeoutTransform.Applicability.APPLICABLE
-                }
-
-                log.info("${testTask.path} has ${applicableClasses.size} classes applicable" +
-                        " for the Junit4TimeoutTransform. Applying transform with test timeout timeout " +
-                        "${enforcementSpec.timeoutMillis}ms")
-
-                // TODO: Parallelize per file? Either directly with coroutines or via gradle worker api.
-                // Measure perf hit from this additional step and decide accordingly
-                applicableClasses.forEach {
-                    log.debug("Applying Junit Timeout Transform to ${it.destination}")
-                    try {
-                        it.destination.writeBytes(timeoutTransformer.apply(it.destination))
-                    } catch (e: Throwable) {
-                        throw RuntimeException("Problem applying transformation to ${it.className}", e)
                     }
                 }
-            }
+        }
     }
 
     private fun TimeoutSpec.actionName(): String = "${this.testTaskName}TimeoutTransform"
