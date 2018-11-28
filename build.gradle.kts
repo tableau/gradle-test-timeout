@@ -63,7 +63,7 @@ gradlePlugin {
 }
 
 tasks {
-    withType<Test> {
+    withType<Test>().configureEach {
         dependsOn(samplesSourceSet.output)
         useJUnitPlatform {
             includeEngines("spek")
