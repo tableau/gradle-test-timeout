@@ -1,15 +1,12 @@
-import java.io.ByteArrayOutputStream
-import com.google.googlejavaformat.java.Formatter
-
 plugins {
     id("java-gradle-plugin")
-    id("com.tableau.nerv-java-lib-module-plugin") version("4.8.0")
     id("org.jmailen.kotlinter") version("1.11.3")
     id("maven-publish")
     kotlin("jvm") version("1.3.10")
 }
-buildscript {
-    dependencies.add("classpath","com.google.googlejavaformat:google-java-format:1.5" )
+
+repositories {
+    jcenter()
 }
 
 // Create a "samples" sourceset for sample junit tests to live within
@@ -63,73 +60,10 @@ gradlePlugin {
 }
 
 tasks {
-    withType<Test> {
+    withType<Test>().configureEach {
         dependsOn(samplesSourceSet.output)
         useJUnitPlatform {
             includeEngines("spek")
         }
     }
-
-    // Skip dependency locking in favor of static versioning of dependencies
-    findByName("nervEnsureDependenciesLocked")?.enabled = false
-}
-
-val asmifyBasicJunitTest by tasks.creating(JavaExec::class) {
-    classpath(samplesSourceSet.output,
-            project.configurations.getByName("testRuntime"))
-
-    val inputFile = file("${project.java.sourceSets.getByName("samples").java.outputDir}/com/tableau/modules/gradle/BasicJunitTest.class")
-    val outputFile = file("build/gen/BasicJunitTestDump.java")
-    val outputStream = ByteArrayOutputStream()
-    inputs.file(inputFile)
-    outputs.file(outputFile)
-
-    main = "org.objectweb.asm.util.ASMifier"
-    args(file("build/classes/java/test/com/tableau/modules/gradle/BasicJunitTest.class"))
-    standardOutput = outputStream
-
-    doFirst {
-        outputFile.parentFile.mkdirs()
-        outputFile.createNewFile()
-    }
-    doLast {
-        // ASMifier doesn't bother pretty-printing the source code
-        // So, purely for convenience, have google-java-format make it easier to read
-        val prettyPrintedSource = Formatter().formatSource(outputStream.toString())
-        outputFile.writeText(prettyPrintedSource)
-        println("BasicJunitTestDump.java available under ${outputFile.path}")
-    }
-}
-
-val asmifyBasicJunitTestWithTimeout by tasks.creating(JavaExec::class) {
-    classpath(samplesSourceSet.output,
-            project.configurations.getByName("testRuntime"))
-
-    val inputFile = file("${project.java.sourceSets.getByName("samples").java.outputDir}/com/tableau/modules/gradle/BasicJunitTestWithTimeout.class")
-    val outputFile = file("build/gen/BasicJunitTestWithTimeoutDump.java")
-    val outputStream = ByteArrayOutputStream()
-    inputs.file(inputFile)
-    outputs.file(outputFile)
-
-    main = "org.objectweb.asm.util.ASMifier"
-    args(inputFile)
-    standardOutput = outputStream
-
-    doFirst {
-        outputFile.parentFile.mkdirs()
-        outputFile.createNewFile()
-    }
-    doLast {
-        // ASMifier doesn't bother pretty-printing the source code
-        // So, purely for convenience, have google-java-format make it easier to read
-        val prettyPrintedSource = Formatter().formatSource(outputStream.toString())
-        outputFile.writeText(prettyPrintedSource)
-        println("BasicJunitTestWithTimeoutDump.java available under ${outputFile.path}")
-    }
-}
-
-val asmify by tasks.creating {
-    dependsOn(asmifyBasicJunitTest, asmifyBasicJunitTestWithTimeout)
-    description = "Convenience task for generating ASM classes that would produce the bytecode of BasicJunitTest and BasicJunitTestWithTimeout"
-    group = "ASM"
 }
